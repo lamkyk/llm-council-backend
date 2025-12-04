@@ -1,5 +1,5 @@
-// server.js - Groq + OpenRouter + Gemini + DeepSeek council with confidence-weighted voting
-// Requires: "type": "module" in package.json
+// server.js - LLM Council backend (Groq + OpenRouter + Gemini + DeepSeek)
+// package.json must include:  "type": "module"
 
 import express from "express";
 import cors from "cors";
@@ -13,56 +13,50 @@ app.use(express.json());
 const GROQ_KEY   = process.env.GROQ_KEY;
 const OR_KEY     = process.env.OR_KEY;
 const GEMINI_KEY = process.env.GEMINI_KEY;
-const DEEP_KEY   = process.env.DEEP_KEY;
 
 if (!GROQ_KEY)   console.warn("WARNING: GROQ_KEY not set.");
 if (!OR_KEY)     console.warn("WARNING: OR_KEY not set.");
 if (!GEMINI_KEY) console.warn("WARNING: GEMINI_KEY not set.");
-if (!DEEP_KEY)   console.warn("WARNING: DEEP_KEY not set.");
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const OR_URL   = "https://openrouter.ai/api/v1/chat/completions";
-const DEEP_URL = "https://api.deepseek.com/chat/completions";
 
-// Model list (as requested)
+// Council model set
 const MODELS = [
   // Groq
-  { id: "llama-3.1-8b-instant",            provider: "groq",     label: "Groq • Llama-3.1 8B" },
-  { id: "llama-3.3-70b-versatile",         provider: "groq",     label: "Groq • Llama-3.3 70B" }, // chairman
+  { id: "llama-3.1-8b-instant",             provider: "groq",       label: "Groq • Llama-3.1 8B" },
+  { id: "llama-3.3-70b-versatile",          provider: "groq",       label: "Groq • Llama-3.3 70B" }, // chairman
 
-  // OpenRouter
-  { id: "openai/gpt-oss-20b",              provider: "openrouter", label: "OR • GPT-OSS-20B" },
+  // OpenRouter (OSS + Llama + Kimi + DeepSeek)
+  { id: "openai/gpt-oss-20b",               provider: "openrouter", label: "OR • GPT-OSS-20B" },
   { id: "meta-llama/llama-3.1-8b-instruct", provider: "openrouter", label: "OR • LLaMA-3.1 8B Instruct" },
   { id: "moonshotai/kimi-k2-instruct-0905", provider: "openrouter", label: "OR • Kimi-K2 Instruct 0905" },
-  { id: "deepseek/deepseek-v3",            provider: "openrouter", label: "OR • DeepSeek V3" },
+  { id: "deepseek/deepseek-v3",             provider: "openrouter", label: "OR • DeepSeek V3" },
+
+  // Extra DeepSeek via OR (free tier)
+  { id: "deepseek/deepseek-chat",           provider: "openrouter", label: "OR • DeepSeek Chat" },
+  { id: "deepseek/deepseek-r1",             provider: "openrouter", label: "OR • DeepSeek R1" },
+  { id: "deepseek/deepseek-chat-v3.1",      provider: "openrouter", label: "OR • DeepSeek Chat v3.1" },
 
   // Gemini
-  { id: "gemini-2.0-flash-exp",            provider: "gemini",  label: "Gemini • Flash 2.0 Exp" },
-
-  // DeepSeek direct
-  { id: "deepseek-chat",                   provider: "deepseek", label: "DeepSeek • Chat" },
-  { id: "deepseek-reasoner",               provider: "deepseek", label: "DeepSeek • Reasoner" }
+  { id: "gemini-2.0-flash-exp",             provider: "gemini",     label: "Gemini • Flash 2.0 Exp" }
 ];
 
-// Chairman is Groq 70B
 const CHAIRMAN = MODELS[1];
 
-// Per-provider base delays (ms)
 const BASE_DELAY = {
   groq: 1000,
-  openrouter: 2500,
-  gemini: 2000,
-  deepseek: 2500
+  openrouter: 2000,
+  gemini: 2000
 };
 
 function sleep(ms) {
   return new Promise(res => setTimeout(res, ms));
 }
 
-// Generic call with retries and per-provider handling
 async function callModelWithRetry(model, prompt, {
   temperature = 0.7,
-  maxTokens = 400,
+  maxTokens = 450,
   maxAttempts = 3
 } = {}) {
   let attempt = 1;
@@ -70,9 +64,7 @@ async function callModelWithRetry(model, prompt, {
 
   while (attempt <= maxAttempts) {
     try {
-      let url;
-      let headers;
-      let body;
+      let url, headers, body;
 
       if (model.provider === "groq") {
         url = GROQ_URL;
@@ -113,18 +105,6 @@ async function callModelWithRetry(model, prompt, {
             maxOutputTokens: maxTokens
           }
         });
-      } else if (model.provider === "deepseek") {
-        url = DEEP_URL;
-        headers = {
-          Authorization: `Bearer ${DEEP_KEY}`,
-          "Content-Type": "application/json"
-        };
-        body = JSON.stringify({
-          model: model.id,
-          messages: [{ role: "user", content: prompt }],
-          temperature,
-          max_tokens: maxTokens
-        });
       } else {
         return null;
       }
@@ -133,8 +113,8 @@ async function callModelWithRetry(model, prompt, {
 
       if (!resp.ok) {
         const status = resp.status;
-        const text = await resp.text().catch(() => "");
-        console.error(`Model ${model.label} attempt ${attempt} failed: ${status} ${text}`);
+        const txt = await resp.text().catch(() => "");
+        console.error(`Model ${model.label} attempt ${attempt} failed: ${status} ${txt}`);
 
         if ([429, 500, 502, 503, 504].includes(status) && attempt < maxAttempts) {
           await sleep(delay);
@@ -157,21 +137,20 @@ async function callModelWithRetry(model, prompt, {
 
       if (!content) return null;
 
-      await sleep(800);
+      await sleep(500);
       return content;
     } catch (err) {
-      console.error(`Model ${model.label} network error on attempt ${attempt}:`, err?.message || err);
+      console.error(`Model ${model.label} network error attempt ${attempt}:`, err?.message || err);
       if (attempt >= maxAttempts) return null;
       await sleep(delay);
       delay = Math.min(delay * 2, 20000);
       attempt += 1;
     }
   }
-
   return null;
 }
 
-// Health check
+// Health
 app.get("/", (_req, res) => {
   res.send("LLM Council backend is running.");
 });
@@ -179,22 +158,22 @@ app.get("/", (_req, res) => {
 app.post("/council", async (req, res) => {
   const prompt = req.body?.prompt;
   if (!prompt || typeof prompt !== "string") {
-    return res.status(400).json({ error: "Missing prompt in body." });
+    return res.status(400).json({ error: "Missing prompt" });
   }
 
   try {
     const attemptedModels = MODELS.map(m => m.label);
     const answers = [];
 
-    // Global warmup
-    await sleep(1500);
+    // Small warmup so models are less likely to collide on limits
+    await sleep(800);
 
-    // 1) Collect answers sequentially with per-provider stagger
+    // 1) Collect answers sequentially with provider-aware stagger
     for (const m of MODELS) {
       const answer = await callModelWithRetry(
         m,
         `User question:\n${prompt}\n\nRespond clearly in markdown.`,
-        { temperature: 0.7, maxTokens: 450 }
+        { temperature: 0.7, maxTokens: 400 }
       );
       if (answer) {
         answers.push({
@@ -203,8 +182,8 @@ app.post("/council", async (req, res) => {
           text: answer
         });
       }
-      const extraDelay = BASE_DELAY[m.provider] || 1500;
-      await sleep(extraDelay);
+      const extra = BASE_DELAY[m.provider] || 1500;
+      await sleep(extra);
     }
 
     if (!answers.length) {
@@ -213,14 +192,14 @@ app.post("/council", async (req, res) => {
 
     const n = answers.length;
 
-    // 2) Ask chairman for JSON ranking + confidence
+    // 2) Chairman JSON ranking + confidence
     let rankingIndices = [];
     let confByRank = [];
-    let rankingReason = "No reason parsed.";
+    let rankingReason = "No reason provided.";
     let bestIndex = 1;
 
     const rankingPrompt =
-      `You are judging answers from ${n} models to the same question.\n` +
+      `You are judging answers from ${n} models to the same user question.\n` +
       `Question:\n"${prompt}"\n\n` +
       `Answers:\n` +
       answers
@@ -242,12 +221,9 @@ app.post("/council", async (req, res) => {
     if (rankingRaw) {
       try {
         const trimmed = rankingRaw.trim();
-        const jsonStart = trimmed.indexOf("{");
-        const jsonEnd = trimmed.lastIndexOf("}");
-        const jsonText = jsonStart >= 0 && jsonEnd > jsonStart
-          ? trimmed.slice(jsonStart, jsonEnd + 1)
-          : trimmed;
-
+        const start = trimmed.indexOf("{");
+        const end = trimmed.lastIndexOf("}");
+        const jsonText = start >= 0 && end > start ? trimmed.slice(start, end + 1) : trimmed;
         const parsed = JSON.parse(jsonText);
 
         if (Array.isArray(parsed.ranking)) {
@@ -268,7 +244,6 @@ app.post("/council", async (req, res) => {
       }
     }
 
-    // Fallback ranking / confidence
     if (!rankingIndices.length || rankingIndices.length !== n) {
       rankingIndices = Array.from({ length: n }, (_, i) => i + 1);
     }
@@ -276,7 +251,6 @@ app.post("/council", async (req, res) => {
       confByRank = Array.from({ length: n }, () => 1);
     }
 
-    // Validate ranking is permutation of 1..n
     const expectedSet = new Set(Array.from({ length: n }, (_, i) => i + 1));
     const gotSet = new Set(rankingIndices);
     if (expectedSet.size !== gotSet.size || [...expectedSet].some(v => !gotSet.has(v))) {
@@ -289,16 +263,16 @@ app.post("/council", async (req, res) => {
 
     for (let answerIdx = 0; answerIdx < n; answerIdx++) {
       const answerNumber = answerIdx + 1;
-      const rankPos = rankingIndices.indexOf(answerNumber); // 0-based
+      const rankPos = rankingIndices.indexOf(answerNumber);
       if (rankPos === -1) continue;
 
       const basePoints = n - rankPos;
       const conf = confByRank[rankPos] ?? 1;
-      const clampedConf = Math.max(0, Math.min(1, conf));
-      const weighted = basePoints * clampedConf;
+      const clamped = Math.max(0, Math.min(1, conf));
+      const weighted = basePoints * clamped;
 
       pointsPerAnswer[answerIdx] = weighted;
-      avgConfPerAnswer[answerIdx] = clampedConf;
+      avgConfPerAnswer[answerIdx] = clamped;
     }
 
     const maxPoints = pointsPerAnswer.reduce((m, v) => (v > m ? v : m), 0);
@@ -307,20 +281,18 @@ app.post("/council", async (req, res) => {
       return Math.round((v / maxPoints) * 100);
     });
 
-    // Best answer index
     if (rankingIndices.length > 0) {
       bestIndex = rankingIndices[0];
     } else {
-      const maxIdx = pointsPerAnswer.reduce(
+      bestIndex = pointsPerAnswer.reduce(
         (idx, v, i) => (v > pointsPerAnswer[idx] ? i : idx),
         0
-      );
-      bestIndex = maxIdx + 1;
+      ) + 1;
     }
 
     const bestAnswer = answers[bestIndex - 1] || answers[0];
 
-    // 4) Chairman synthesizes final answer
+    // 4) Chairman synthesis
     const finalPrompt =
       `User question:\n${prompt}\n\n` +
       `Here are answers from different models. The best answer is number ${bestIndex} from ${bestAnswer.label}.\n\n` +
@@ -335,7 +307,6 @@ app.post("/council", async (req, res) => {
       { temperature: 0.6, maxTokens: 700 }
     );
 
-    // Transcripts for frontend collapsible display
     const transcripts = answers.map(a => ({
       model: a.label,
       answer: a.text
@@ -356,9 +327,7 @@ app.post("/council", async (req, res) => {
     });
   } catch (err) {
     console.error("Council error:", err);
-    return res.status(500).json({
-      error: "Council error: " + (err?.message || String(err))
-    });
+    return res.status(500).json({ error: "Council error: " + (err?.message || String(err)) });
   }
 });
 
