@@ -1,4 +1,4 @@
-// server.js - LLM Council backend (Groq + OpenRouter + Gemini + DeepSeek)
+// server.js - LLM Council backend (Groq + OpenRouter + DeepSeek + Gemini soft)
 // package.json must include:  "type": "module"
 
 import express from "express";
@@ -9,58 +9,65 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Environment variables
+// Env vars
 const GROQ_KEY   = process.env.GROQ_KEY;
 const OR_KEY     = process.env.OR_KEY;
 const GEMINI_KEY = process.env.GEMINI_KEY;
 
+// Basic logging
 if (!GROQ_KEY)   console.warn("WARNING: GROQ_KEY not set.");
 if (!OR_KEY)     console.warn("WARNING: OR_KEY not set.");
-if (!GEMINI_KEY) console.warn("WARNING: GEMINI_KEY not set.");
+if (!GEMINI_KEY) console.warn("WARNING: GEMINI_KEY not set; Gemini will be skipped.");
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const OR_URL   = "https://openrouter.ai/api/v1/chat/completions";
 
 // Council model set
 const MODELS = [
-  // Groq
-  { id: "llama-3.1-8b-instant",             provider: "groq",       label: "Groq • Llama-3.1 8B" },
-  { id: "llama-3.3-70b-versatile",          provider: "groq",       label: "Groq • Llama-3.3 70B" }, // chairman
+  // Groq (core)
+  { id: "llama-3.1-8b-instant",    provider: "groq",       label: "Groq • Llama-3.1 8B" },
+  { id: "llama-3.3-70b-versatile", provider: "groq",       label: "Groq • Llama-3.3 70B" }, // chairman
 
-  // OpenRouter (OSS + Llama + Kimi + DeepSeek)
+  // OpenRouter (OSS + LLaMA + Kimi + DeepSeek V3)
   { id: "openai/gpt-oss-20b",               provider: "openrouter", label: "OR • GPT-OSS-20B" },
   { id: "meta-llama/llama-3.1-8b-instruct", provider: "openrouter", label: "OR • LLaMA-3.1 8B Instruct" },
   { id: "moonshotai/kimi-k2-instruct-0905", provider: "openrouter", label: "OR • Kimi-K2 Instruct 0905" },
   { id: "deepseek/deepseek-v3",             provider: "openrouter", label: "OR • DeepSeek V3" },
 
-  // Extra DeepSeek via OR (free tier)
+  // Extra DeepSeek variants (also via OpenRouter; safe if quota OK)
   { id: "deepseek/deepseek-chat",           provider: "openrouter", label: "OR • DeepSeek Chat" },
-  { id: "deepseek/deepseek-r1",             provider: "openrouter", label: "OR • DeepSeek R1" },
-  { id: "deepseek/deepseek-chat-v3.1",      provider: "openrouter", label: "OR • DeepSeek Chat v3.1" },
+  { id: "deepseek/deepseek-r1",             provider: "openrouter", label: "OR • DeepSeek Reasoner" },
 
-  // Gemini
+  // Gemini (soft / best-effort; often quota=0)
   { id: "gemini-2.0-flash-exp",             provider: "gemini",     label: "Gemini • Flash 2.0 Exp" }
 ];
 
-const CHAIRMAN = MODELS[1];
+const CHAIRMAN = MODELS[1]; // Groq Llama-3.3 70B
 
 const BASE_DELAY = {
-  groq: 1000,
-  openrouter: 2000,
-  gemini: 2000
+  groq: 1200,
+  openrouter: 2200,
+  gemini: 2500
 };
 
 function sleep(ms) {
   return new Promise(res => setTimeout(res, ms));
 }
 
+// Generic model caller with retries & soft failures
 async function callModelWithRetry(model, prompt, {
   temperature = 0.7,
-  maxTokens = 450,
+  maxTokens   = 450,
   maxAttempts = 3
 } = {}) {
+  // If Gemini key missing, skip up-front
+  if (model.provider === "gemini" && !GEMINI_KEY) {
+    console.log(`Skipping ${model.label} (no GEMINI_KEY).`);
+    return null;
+  }
+
   let attempt = 1;
-  let delay = BASE_DELAY[model.provider] || 2000;
+  let delay   = BASE_DELAY[model.provider] || 2000;
 
   while (attempt <= maxAttempts) {
     try {
@@ -113,8 +120,14 @@ async function callModelWithRetry(model, prompt, {
 
       if (!resp.ok) {
         const status = resp.status;
-        const txt = await resp.text().catch(() => "");
+        const txt    = await resp.text().catch(() => "");
         console.error(`Model ${model.label} attempt ${attempt} failed: ${status} ${txt}`);
+
+        // Gemini quota exhausted – treat as soft failure, no retries
+        if (model.provider === "gemini" && status === 429) {
+          console.warn(`Soft-skipping ${model.label} due to Gemini quota (429).`);
+          return null;
+        }
 
         if ([429, 500, 502, 503, 504].includes(status) && attempt < maxAttempts) {
           await sleep(delay);
@@ -138,7 +151,7 @@ async function callModelWithRetry(model, prompt, {
       if (!content) return null;
 
       await sleep(500);
-      return content;
+      return content.trim();
     } catch (err) {
       console.error(`Model ${model.label} network error attempt ${attempt}:`, err?.message || err);
       if (attempt >= maxAttempts) return null;
@@ -150,7 +163,7 @@ async function callModelWithRetry(model, prompt, {
   return null;
 }
 
-// Health
+// Health endpoint
 app.get("/", (_req, res) => {
   res.send("LLM Council backend is running.");
 });
@@ -165,38 +178,55 @@ app.post("/council", async (req, res) => {
     const attemptedModels = MODELS.map(m => m.label);
     const answers = [];
 
-    // Small warmup so models are less likely to collide on limits
+    // Gentle warm-up
     await sleep(800);
 
-    // 1) Collect answers sequentially with provider-aware stagger
+    // 1) Collect individual answers (sequential, staggered)
     for (const m of MODELS) {
       const answer = await callModelWithRetry(
         m,
         `User question:\n${prompt}\n\nRespond clearly in markdown.`,
-        { temperature: 0.7, maxTokens: 400 }
+        { temperature: 0.7, maxTokens: 380 }
       );
       if (answer) {
-        answers.push({
-          label: m.label,
-          provider: m.provider,
-          text: answer
-        });
+        answers.push({ label: m.label, provider: m.provider, text: answer });
       }
       const extra = BASE_DELAY[m.provider] || 1500;
       await sleep(extra);
     }
 
+    // 1a. If all failed -> fallback to chairman only
     if (!answers.length) {
-      return res.status(500).json({ error: "No models returned an answer." });
+      console.warn("No council models responded; falling back to chairman only.");
+      const fallbackAnswer = await callModelWithRetry(
+        CHAIRMAN,
+        `User question:\n${prompt}\n\nRespond in markdown.`,
+        { temperature: 0.7, maxTokens: 650 }
+      );
+      const final = fallbackAnswer || "Council could not reach the models, but the chairman produced no answer.";
+
+      return res.json({
+        chairman: CHAIRMAN.label,
+        modelsAttempted,
+        modelsUsed: [CHAIRMAN.label],
+        bestIndex: 1,
+        bestModel: CHAIRMAN.label,
+        ranking: [1],
+        rankingReason: "Only the chairman responded.",
+        percentages: [100],
+        avgConfidences: [1],
+        final,
+        transcripts: [{ model: CHAIRMAN.label, answer: final }]
+      });
     }
 
     const n = answers.length;
 
-    // 2) Chairman JSON ranking + confidence
+    // 2) Ask chairman to produce ranking + confidence (JSON)
     let rankingIndices = [];
-    let confByRank = [];
-    let rankingReason = "No reason provided.";
-    let bestIndex = 1;
+    let confByRank     = [];
+    let rankingReason  = "No reason provided.";
+    let bestIndex      = 1;
 
     const rankingPrompt =
       `You are judging answers from ${n} models to the same user question.\n` +
@@ -221,10 +251,10 @@ app.post("/council", async (req, res) => {
     if (rankingRaw) {
       try {
         const trimmed = rankingRaw.trim();
-        const start = trimmed.indexOf("{");
-        const end = trimmed.lastIndexOf("}");
+        const start   = trimmed.indexOf("{");
+        const end     = trimmed.lastIndexOf("}");
         const jsonText = start >= 0 && end > start ? trimmed.slice(start, end + 1) : trimmed;
-        const parsed = JSON.parse(jsonText);
+        const parsed   = JSON.parse(jsonText);
 
         if (Array.isArray(parsed.ranking)) {
           rankingIndices = parsed.ranking.map(v => parseInt(v, 10));
@@ -244,6 +274,7 @@ app.post("/council", async (req, res) => {
       }
     }
 
+    // Fallback if JSON unusable
     if (!rankingIndices.length || rankingIndices.length !== n) {
       rankingIndices = Array.from({ length: n }, (_, i) => i + 1);
     }
@@ -252,8 +283,11 @@ app.post("/council", async (req, res) => {
     }
 
     const expectedSet = new Set(Array.from({ length: n }, (_, i) => i + 1));
-    const gotSet = new Set(rankingIndices);
-    if (expectedSet.size !== gotSet.size || [...expectedSet].some(v => !gotSet.has(v))) {
+    const gotSet      = new Set(rankingIndices);
+    if (
+      expectedSet.size !== gotSet.size ||
+      [...expectedSet].some(v => !gotSet.has(v))
+    ) {
       rankingIndices = Array.from({ length: n }, (_, i) => i + 1);
     }
 
@@ -266,10 +300,10 @@ app.post("/council", async (req, res) => {
       const rankPos = rankingIndices.indexOf(answerNumber);
       if (rankPos === -1) continue;
 
-      const basePoints = n - rankPos;
-      const conf = confByRank[rankPos] ?? 1;
-      const clamped = Math.max(0, Math.min(1, conf));
-      const weighted = basePoints * clamped;
+      const basePoints = n - rankPos; // higher rank => more points
+      const conf       = confByRank[rankPos] ?? 1;
+      const clamped    = Math.max(0, Math.min(1, conf));
+      const weighted   = basePoints * clamped;
 
       pointsPerAnswer[answerIdx] = weighted;
       avgConfPerAnswer[answerIdx] = clamped;
@@ -284,22 +318,24 @@ app.post("/council", async (req, res) => {
     if (rankingIndices.length > 0) {
       bestIndex = rankingIndices[0];
     } else {
-      bestIndex = pointsPerAnswer.reduce(
-        (idx, v, i) => (v > pointsPerAnswer[idx] ? i : idx),
-        0
-      ) + 1;
+      bestIndex =
+        pointsPerAnswer.reduce(
+          (idx, v, i) => (v > pointsPerAnswer[idx] ? i : idx),
+          0
+        ) + 1;
     }
 
     const bestAnswer = answers[bestIndex - 1] || answers[0];
 
-    // 4) Chairman synthesis
+    // 4) Final synthesis from chairman
     const finalPrompt =
       `User question:\n${prompt}\n\n` +
       `Here are answers from different models. The best answer is number ${bestIndex} from ${bestAnswer.label}.\n\n` +
       answers
         .map((a, i) => `${i + 1}. (${a.label})\n${a.text}`)
         .join("\n\n") +
-      `\n\nWrite ONE final answer for the user in markdown. Focus on the best answer and improve it. Do not mention models, ranking, or that multiple answers were combined.`;
+      `\n\nWrite ONE final answer for the user in markdown. Focus on the best answer and improve it. ` +
+      `Do not mention models, ranking, or that multiple answers were combined.`;
 
     const finalAnswer = await callModelWithRetry(
       CHAIRMAN,
@@ -314,7 +350,7 @@ app.post("/council", async (req, res) => {
 
     return res.json({
       chairman: CHAIRMAN.label,
-      modelsAttempted: attemptedModels,
+      modelsAttempted,
       modelsUsed: answers.map(a => a.label),
       bestIndex,
       bestModel: bestAnswer.label,
