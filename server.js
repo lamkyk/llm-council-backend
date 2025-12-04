@@ -49,7 +49,6 @@ app.post("/council", async (req, res) => {
     const orData = await orRes.json();
 
     res.json({
-res.json({
   modelsUsed: [
     "Groq • llama-3.3-70b-versatile",
     "OpenRouter • mistralai/mistral-nemo"
