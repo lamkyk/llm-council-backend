@@ -49,9 +49,17 @@ app.post("/council", async (req, res) => {
     const orData = await orRes.json();
 
     res.json({
-      fromGroq: groqData.choices?.[0]?.message?.content || "",
-      fromOR: orData.choices?.[0]?.message?.content || ""
-    });
+res.json({
+  modelsUsed: [
+    "Groq • llama-3.3-70b-versatile",
+    "OpenRouter • mistralai/mistral-nemo"
+  ],
+  answers: {
+    groq: groqData.choices?.[0]?.message?.content || "",
+    openrouter: orData.choices?.[0]?.message?.content || ""
+  }
+});
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
