@@ -368,50 +368,136 @@ app.post("/council", async (req, res) => {
 });
 
 /* -------------------------------------------------------
-   HEALTH CHECK ENDPOINT
+   HEALTH CHECK (Upgraded for OpenRouter + Groq compatibility)
 --------------------------------------------------------*/
+
 app.get("/health", async (req, res) => {
-  const results = [];
+  const checks = [];
 
-  async function quickCheck(entry) {
-    const ping = "ping";
-    let reply = null;
-
+  async function testGroq(model, name) {
     try {
-      if (entry.provider === "groq") {
-        reply = await callGroq(entry.id, ping, 5);
-      } else if (entry.provider === "openrouter") {
-        reply = await callOpenRouter(entry.id, ping, 5);
-      }
-    } catch {
-      reply = null;
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.GROQ_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 20,
+          temperature: 0,
+          messages: [
+            { role: "system", content: "Health check. Reply with: pong" },
+            { role: "user", content: "pong" }
+          ]
+        })
+      });
+
+      const j = await r.json();
+      const reply = j?.choices?.[0]?.message?.content || null;
+
+      checks.push({
+        model: name,
+        id: model,
+        provider: "groq",
+        ok: reply?.toLowerCase().includes("pong") || false,
+        reply
+      });
+    } catch (err) {
+      checks.push({
+        model: name,
+        id: model,
+        provider: "groq",
+        ok: false,
+        reply: String(err)
+      });
     }
-
-    return {
-      model: entry.label,
-      id: entry.id,
-      provider: entry.provider,
-      ok: !!reply,
-      reply: reply || null
-    };
   }
 
-  try {
-    const checks = await Promise.all(MODELS.map(m => quickCheck(m)));
-    return res.json({
-      status: "ok",
-      modelsTested: MODELS.length,
-      timestamp: new Date().toISOString(),
-      checks
-    });
-  } catch (e) {
-    return res.json({
-      status: "error",
-      message: "Health check failed",
-      details: e.toString()
-    });
+  async function testOR(model, name) {
+    try {
+      const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.OR_KEY}`,
+          "HTTP-Referer": "https://your-site.com",  // optional but recommended
+          "X-Title": "LLM Council Health Check",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 20,
+          temperature: 0,
+          messages: [
+            { role: "system", content: "Health probe. Respond exactly with: pong" },
+            { role: "user", content: "pong" }
+          ]
+        })
+      });
+
+      const j = await r.json();
+      const reply = j?.choices?.[0]?.message?.content || null;
+
+      checks.push({
+        model: name,
+        id: model,
+        provider: "openrouter",
+        ok: reply?.toLowerCase().includes("pong") || false,
+        reply
+      });
+    } catch (err) {
+      checks.push({
+        model: name,
+        id: model,
+        provider: "openrouter",
+        ok: false,
+        reply: String(err)
+      });
+    }
   }
+
+  /* -------------------------
+     MODELS TO HEALTH CHECK
+  --------------------------*/
+
+  const GROQ_MODELS = [
+    ["llama-3.1-8b-instant", "Groq • Llama-3.1 8B"],
+    ["llama-3.3-70b-versatile", "Groq • Llama-3.3 70B"]
+  ];
+
+  const OR_MODELS = [
+    ["openai/gpt-oss-20b", "GPT-OSS-20B"],
+    ["meta-llama/llama-3.1-8b-instruct:free", "LLaMA 3.1 8B Instruct"],
+    ["moonshotai/kimi-k2-instruct-0905:free", "Kimi-K2"],
+    ["deepseek/deepseek-v3:free", "DeepSeek V3"],
+    ["deepseek/deepseek-chat:free", "DeepSeek Chat"],
+    ["deepseek/deepseek-r1:free", "DeepSeek R1 Reasoner"],
+    ["deepseek/deepseek-chat-v3.1:free", "DeepSeek Chat v3.1"],
+    ["google/gemini-2.0-flash-exp:free", "Gemini Flash 2.0"],
+    ["mistralai/mistral-nemo:free", "Mistral Nemo"]
+  ];
+
+  /* -------------------------
+     RUN CHECKS IN PARALLEL
+  --------------------------*/
+
+  await Promise.all([
+    ...GROQ_MODELS.map(([id, name]) => testGroq(id, name)),
+    ...OR_MODELS.map(([id, name]) => testOR(id, name))
+  ]);
+
+  /* -------------------------
+     SEND RESULT
+  --------------------------*/
+
+  res.json({
+    status: "ok",
+    modelsTested: checks.length,
+    timestamp: new Date().toISOString(),
+    checks
+  });
 });
+
 
 /* -------------------------------------------------------
    START SERVER
