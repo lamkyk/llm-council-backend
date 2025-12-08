@@ -120,7 +120,7 @@ async function callOpenRouter(model, prompt, maxTokens = 500) {
       method: "POST",
       headers: {
         Authorization: `Bearer ${OR_KEY}`,
-        "HTTP-Referer": "https://llm-council",
+        "HTTP-Referer": "https://sites.google.com/view/kylelam/council",
         "X-Title": "LLM Council",
         "Content-Type": "application/json"
       },
@@ -420,7 +420,7 @@ app.get("/health", async (req, res) => {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${process.env.OR_KEY}`,
-          "HTTP-Referer": "https://your-site.com",  // optional but recommended
+          "HTTP-Referer": "https://sites.google.com/view/kylelam/council",  // optional but recommended
           "X-Title": "LLM Council Health Check",
           "Content-Type": "application/json"
         },
