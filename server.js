@@ -504,19 +504,22 @@ app.post("/council", async (req, res) => {
 });
 
 /* -------------------------------------------------------
-   HEALTH CHECK (OpenRouter + Groq)
-   (unchanged: still only checks Groq + OR models)
+   HEALTH CHECK — FULL PROVIDER COVERAGE
 --------------------------------------------------------*/
 
 app.get("/health", async (req, res) => {
   const checks = [];
+
+  /* -------------------------
+     HELPERS
+  --------------------------*/
 
   async function testGroq(model, name) {
     try {
       const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${process.env.GROQ_KEY}`,
+          "Authorization": `Bearer ${process.env.GROQ_KEY}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -524,7 +527,7 @@ app.get("/health", async (req, res) => {
           max_tokens: 20,
           temperature: 0,
           messages: [
-            { role: "system", content: "Health check. Reply with: pong" },
+            { role: "system", content: "Reply with pong" },
             { role: "user", content: "pong" }
           ]
         })
@@ -541,13 +544,7 @@ app.get("/health", async (req, res) => {
         reply
       });
     } catch (err) {
-      checks.push({
-        model: name,
-        id: model,
-        provider: "groq",
-        ok: false,
-        reply: String(err)
-      });
+      checks.push({ model: name, id: model, provider: "groq", ok: false, reply: String(err) });
     }
   }
 
@@ -556,8 +553,7 @@ app.get("/health", async (req, res) => {
       const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${process.env.OR_KEY}`,
-          "X-Title": "LLM Council Health Check",
+          "Authorization": `Bearer ${process.env.OR_KEY}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -565,7 +561,7 @@ app.get("/health", async (req, res) => {
           max_tokens: 20,
           temperature: 0,
           messages: [
-            { role: "system", content: "Health probe. Respond exactly with: pong" },
+            { role: "system", content: "pong" },
             { role: "user", content: "pong" }
           ]
         })
@@ -582,37 +578,155 @@ app.get("/health", async (req, res) => {
         reply
       });
     } catch (err) {
+      checks.push({ model: name, id: model, provider: "openrouter", ok: false, reply: String(err) });
+    }
+  }
+
+  async function testTogether(model, name) {
+    try {
+      const r = await fetch("https://api.together.xyz/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.TOGETHER_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 20,
+          messages: [
+            { role: "system", content: "pong" },
+            { role: "user", content: "pong" }
+          ]
+        })
+      });
+
+      const j = await r.json();
+      const reply = j?.choices?.[0]?.message?.content || null;
+
       checks.push({
         model: name,
         id: model,
-        provider: "openrouter",
-        ok: false,
-        reply: String(err)
+        provider: "together",
+        ok: reply?.toLowerCase().includes("pong") || false,
+        reply
       });
+    } catch (err) {
+      checks.push({ model: name, id: model, provider: "together", ok: false, reply: String(err) });
     }
   }
+
+  async function testFireworks(model, name) {
+    try {
+      const r = await fetch(`https://api.fireworks.ai/inference/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.FIREWORKS_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 20,
+          messages: [
+            { role: "system", content: "pong" },
+            { role: "user", content: "pong" }
+          ]
+        })
+      });
+
+      const j = await r.json();
+      const reply = j?.choices?.[0]?.message?.content || null;
+
+      checks.push({
+        model: name,
+        id: model,
+        provider: "fireworks",
+        ok: reply?.toLowerCase().includes("pong") || false,
+        reply
+      });
+    } catch (err) {
+      checks.push({ model: name, id: model, provider: "fireworks", ok: false, reply: String(err) });
+    }
+  }
+
+  async function testHF(model, name) {
+    try {
+      const r = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.HF_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          inputs: "pong"
+        })
+      });
+
+      const j = await r.json();
+      const reply = j?.generated_text || j?.[0]?.generated_text || null;
+
+      checks.push({
+        model: name,
+        id: model,
+        provider: "huggingface",
+        ok: reply?.toLowerCase().includes("pong") || false,
+        reply
+      });
+    } catch (err) {
+      checks.push({ model: name, id: model, provider: "huggingface", ok: false, reply: String(err) });
+    }
+  }
+
+  /* -------------------------
+     MODEL LISTS
+  --------------------------*/
 
   const GROQ_MODELS = [
     ["llama-3.1-8b-instant", "Groq • Llama-3.1 8B"],
     ["llama-3.3-70b-versatile", "Groq • Llama-3.3 70B"]
   ];
 
-  const OR_MODELS = [
+  const OPENROUTER_MODELS = [
     ["openai/gpt-oss-20b", "GPT-OSS-20B"],
     ["meta-llama/llama-3.1-8b-instruct:free", "LLaMA 3.1 8B Instruct"],
     ["moonshotai/kimi-k2-instruct-0905:free", "Kimi-K2"],
     ["deepseek/deepseek-v3:free", "DeepSeek V3"],
     ["deepseek/deepseek-chat:free", "DeepSeek Chat"],
-    ["deepseek/deepseek-r1:free", "DeepSeek R1 Reasoner"],
+    ["deepseek/deepseek-r1:free", "DeepSeek R1"],
     ["deepseek/deepseek-chat-v3.1:free", "DeepSeek Chat v3.1"],
     ["google/gemini-2.0-flash-exp:free", "Gemini Flash 2.0"],
     ["mistralai/mistral-nemo:free", "Mistral Nemo"]
   ];
 
+  const TOGETHER_MODELS = [
+    ["meta-llama/Llama-3-70b-chat-hf", "Together Llama-3-70B Chat"],
+    ["Qwen/Qwen2.5-72B-Instruct", "Together Qwen2.5-72B"]
+  ];
+
+  const FIREWORKS_MODELS = [
+    ["accounts/fireworks/models/llama-v3p1-70b-instruct", "Fireworks Llama-3.1-70B"],
+    ["accounts/fireworks/models/llama-v3p1-8b-instruct", "Fireworks Llama-3.1-8B"]
+  ];
+
+  const HF_MODELS = [
+    ["HuggingFaceH4/zephyr-7b-beta", "HF Zephyr 7B"],
+    ["mistralai/Mistral-7B-Instruct-v0.2", "HF Mistral 7B"]
+  ];
+
+  /* -------------------------
+     RUN ALL CHECKS
+  --------------------------*/
+
   await Promise.all([
     ...GROQ_MODELS.map(([id, name]) => testGroq(id, name)),
-    ...OR_MODELS.map(([id, name]) => testOR(id, name))
+    ...OPENROUTER_MODELS.map(([id, name]) => testOR(id, name)),
+    ...TOGETHER_MODELS.map(([id, name]) => testTogether(id, name)),
+    ...FIREWORKS_MODELS.map(([id, name]) => testFireworks(id, name)),
+    ...HF_MODELS.map(([id, name]) => testHF(id, name))
   ]);
+
+  /* -------------------------
+     SEND RESULT
+  --------------------------*/
 
   res.json({
     status: "ok",
@@ -621,6 +735,7 @@ app.get("/health", async (req, res) => {
     checks
   });
 });
+
 
 /* -------------------------------------------------------
    START SERVER
