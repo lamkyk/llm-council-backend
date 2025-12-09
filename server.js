@@ -157,7 +157,6 @@ async function callGroq(model, prompt, maxTokens = 500) {
 
 async function callOpenRouter(model, prompt, maxTokens = 500) {
   if (!OR_KEY) return null;
-
   try {
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -173,32 +172,27 @@ async function callOpenRouter(model, prompt, maxTokens = 500) {
       })
     });
 
-    // Read raw response (important)
-    const raw = await r.text();
-
-    // Log everything to Render console
-    console.log("\n========== OPENROUTER RAW RESPONSE ==========");
-    console.log("Model:", model);
-    console.log("HTTP Status:", r.status);
-    console.log("Body:", raw);
-    console.log("=============================================\n");
-
-    // Try parsing JSON (in case it's valid)
-    try {
-      const j = JSON.parse(raw);
-      return j?.choices?.[0]?.message?.content || null;
-    } catch {
+    // NEW: capture failure output
+    if (!r.ok) {
+      const errText = await r.text().catch(() => "no-body");
+      console.error("OpenRouter ERROR:", {
+        model,
+        status: r.status,
+        statusText: r.statusText,
+        body: errText
+      });
       return null;
     }
 
+    const j = await r.json();
+    return j?.choices?.[0]?.message?.content || null;
+
   } catch (err) {
-    console.log("\n===== OPENROUTER FETCH ERROR =====");
-    console.log("Model:", model);
-    console.log("Error:", err);
-    console.log("==================================\n");
+    console.error("OpenRouter EXCEPTION:", { model, error: err });
     return null;
   }
 }
+
 
 async function callTogether(model, prompt, maxTokens = 500) {
   if (!TOGETHER_KEY) return null;
@@ -569,39 +563,65 @@ app.get("/health", async (req, res) => {
     }
   }
 
-  async function testOR(model, name) {
-    try {
-      const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.OR_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 20,
-          temperature: 0,
-          messages: [
-            { role: "system", content: "pong" },
-            { role: "user", content: "pong" }
-          ]
-        })
+async function testOR(model, name) {
+  try {
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OR_KEY}`,
+        "X-Title": "LLM Council Health Check",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 20,
+        temperature: 0,
+        messages: [
+          { role: "system", content: "Health probe. Respond exactly with: pong" },
+          { role: "user", content: "pong" }
+        ]
+      })
+    });
+
+    if (!r.ok) {
+      const errText = await r.text().catch(() => "");
+      console.error("HealthCheck OR ERROR:", {
+        model,
+        status: r.status,
+        body: errText
       });
-
-      const j = await r.json();
-      const reply = j?.choices?.[0]?.message?.content || null;
-
       checks.push({
         model: name,
         id: model,
         provider: "openrouter",
-        ok: reply?.toLowerCase().includes("pong") || false,
-        reply
+        ok: false,
+        reply: null
       });
-    } catch (err) {
-      checks.push({ model: name, id: model, provider: "openrouter", ok: false, reply: String(err) });
+      return;
     }
+
+    const j = await r.json();
+    const reply = j?.choices?.[0]?.message?.content || null;
+
+    checks.push({
+      model: name,
+      id: model,
+      provider: "openrouter",
+      ok: reply?.toLowerCase().includes("pong") || false,
+      reply
+    });
+  } catch (err) {
+    console.error("HealthCheck EXCEPTION:", { model, error: err });
+    checks.push({
+      model: name,
+      id: model,
+      provider: "openrouter",
+      ok: false,
+      reply: String(err)
+    });
   }
+}
+
 
   async function testTogether(model, name) {
     try {
