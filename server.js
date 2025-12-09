@@ -9,17 +9,23 @@ app.use(cors());
 
 /* -------------------------------------------------------
    LOAD ENVIRONMENT KEYS
-   (Render dashboard: GROQ_KEY, OR_KEY; GEMINI_KEY/DEEP_KEY optional)
+   (Render dashboard: GROQ_KEY, OR_KEY; optional: TOGETHER_KEY, FIREWORKS_KEY, HF_KEY)
 --------------------------------------------------------*/
-const GROQ_KEY = process.env.GROQ_KEY;
-const OR_KEY = process.env.OR_KEY;
-const GEMINI_KEY = process.env.GEMINI_KEY;  // not used if all via OpenRouter
-const DEEP_KEY = process.env.DEEP_KEY;      // not used if all via OpenRouter
+const GROQ_KEY      = process.env.GROQ_KEY;
+const OR_KEY        = process.env.OR_KEY;
+const GEMINI_KEY    = process.env.GEMINI_KEY;  // currently unused (OpenRouter preferred)
+const DEEP_KEY      = process.env.DEEP_KEY;    // currently unused (OpenRouter preferred)
+const TOGETHER_KEY  = process.env.TOGETHER_KEY;
+const FIREWORKS_KEY = process.env.FIREWORKS_KEY;
+const HF_KEY        = process.env.HF_KEY;
 
 /* -------------------------------------------------------
    MODEL REGISTRY
    - Groq: 2 models
    - OpenRouter: free/subsidized stack
+   - TogetherAI: 2 models
+   - Fireworks: 2 models
+   - HuggingFace: 2 models
 --------------------------------------------------------*/
 const MODELS = [
   // Groq
@@ -79,11 +85,47 @@ const MODELS = [
     label: "Mistral Nemo",
     id: "mistralai/mistral-nemo:free",
     provider: "openrouter"
+  },
+
+  // TogetherAI
+  {
+    label: "Together • LLaMA-3 8B Chat",
+    id: "togethercomputer/llama-3-8b-chat",
+    provider: "together"
+  },
+  {
+    label: "Together • LLaMA-3 70B Chat",
+    id: "togethercomputer/llama-3-70b-chat",
+    provider: "together"
+  },
+
+  // Fireworks.ai
+  {
+    label: "Fireworks • LLaMA-3.1 8B Instruct",
+    id: "accounts/fireworks/models/llama-v3p1-8b-instruct",
+    provider: "fireworks"
+  },
+  {
+    label: "Fireworks • Mixtral 8x7B",
+    id: "accounts/fireworks/models/mixtral-8x7b-instruct",
+    provider: "fireworks"
+  },
+
+  // HuggingFace Inference (text-style)
+  {
+    label: "HF • Zephyr-7B",
+    id: "HuggingFaceH4/zephyr-7b-beta",
+    provider: "huggingface"
+  },
+  {
+    label: "HF • Mistral 7B Instruct",
+    id: "mistralai/Mistral-7B-Instruct-v0.3",
+    provider: "huggingface"
   }
 ];
 
 // Chairman is Groq Llama-3.3 70B
-const CHAIRMAN_ID = "llama-3.3-70b-versatile";
+const CHAIRMAN_ID    = "llama-3.3-70b-versatile";
 const CHAIRMAN_LABEL = "Groq • Llama-3.3 70B";
 
 /* -------------------------------------------------------
@@ -137,6 +179,95 @@ async function callOpenRouter(model, prompt, maxTokens = 500) {
   }
 }
 
+async function callTogether(model, prompt, maxTokens = 500) {
+  if (!TOGETHER_KEY) return null;
+  try {
+    const r = await fetch("https://api.together.xyz/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${TOGETHER_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: maxTokens
+      })
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j.choices?.[0]?.message?.content || null;
+  } catch {
+    return null;
+  }
+}
+
+async function callFireworks(model, prompt, maxTokens = 500) {
+  if (!FIREWORKS_KEY) return null;
+  try {
+    const r = await fetch("https://api.fireworks.ai/inference/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${FIREWORKS_KEY}`,
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: maxTokens
+      })
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j.choices?.[0]?.message?.content || null;
+  } catch {
+    return null;
+  }
+}
+
+async function callHuggingFace(model, prompt, maxTokens = 500) {
+  if (!HF_KEY) return null;
+  try {
+    const r = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${HF_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        inputs: prompt,
+        parameters: {
+          max_new_tokens: maxTokens,
+          temperature: 0.7,
+          return_full_text: false
+        }
+      })
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    let text = null;
+
+    if (Array.isArray(j) && j.length > 0) {
+      if (typeof j[0] === "string") {
+        text = j[0];
+      } else if (j[0]?.generated_text) {
+        text = j[0].generated_text;
+      } else if (j[0]?.summary_text) {
+        text = j[0].summary_text;
+      }
+    } else if (j && typeof j === "object") {
+      if (j.generated_text) text = j.generated_text;
+      else if (j.summary_text) text = j.summary_text;
+    }
+
+    if (!text || typeof text !== "string" || !text.trim()) return null;
+    return text.trim();
+  } catch {
+    return null;
+  }
+}
+
 /* Generic wrapper: pick correct provider, add small per-call delay */
 async function callModel(entry, prompt, maxTokens = 500) {
   let out = null;
@@ -145,6 +276,12 @@ async function callModel(entry, prompt, maxTokens = 500) {
     out = await callGroq(entry.id, prompt, maxTokens);
   } else if (entry.provider === "openrouter") {
     out = await callOpenRouter(entry.id, prompt, maxTokens);
+  } else if (entry.provider === "together") {
+    out = await callTogether(entry.id, prompt, maxTokens);
+  } else if (entry.provider === "fireworks") {
+    out = await callFireworks(entry.id, prompt, maxTokens);
+  } else if (entry.provider === "huggingface") {
+    out = await callHuggingFace(entry.id, prompt, maxTokens);
   } else {
     out = null;
   }
@@ -367,7 +504,8 @@ app.post("/council", async (req, res) => {
 });
 
 /* -------------------------------------------------------
-   HEALTH CHECK (Upgraded for OpenRouter + Groq compatibility)
+   HEALTH CHECK (OpenRouter + Groq)
+   (unchanged: still only checks Groq + OR models)
 --------------------------------------------------------*/
 
 app.get("/health", async (req, res) => {
@@ -378,7 +516,7 @@ app.get("/health", async (req, res) => {
       const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${process.env.GROQ_KEY}`,
+          Authorization: `Bearer ${process.env.GROQ_KEY}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -418,7 +556,7 @@ app.get("/health", async (req, res) => {
       const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${process.env.OR_KEY}`,
+          Authorization: `Bearer ${process.env.OR_KEY}`,
           "X-Title": "LLM Council Health Check",
           "Content-Type": "application/json"
         },
@@ -454,10 +592,6 @@ app.get("/health", async (req, res) => {
     }
   }
 
-  /* -------------------------
-     MODELS TO HEALTH CHECK
-  --------------------------*/
-
   const GROQ_MODELS = [
     ["llama-3.1-8b-instant", "Groq • Llama-3.1 8B"],
     ["llama-3.3-70b-versatile", "Groq • Llama-3.3 70B"]
@@ -475,18 +609,10 @@ app.get("/health", async (req, res) => {
     ["mistralai/mistral-nemo:free", "Mistral Nemo"]
   ];
 
-  /* -------------------------
-     RUN CHECKS IN PARALLEL
-  --------------------------*/
-
   await Promise.all([
     ...GROQ_MODELS.map(([id, name]) => testGroq(id, name)),
     ...OR_MODELS.map(([id, name]) => testOR(id, name))
   ]);
-
-  /* -------------------------
-     SEND RESULT
-  --------------------------*/
 
   res.json({
     status: "ok",
@@ -495,7 +621,6 @@ app.get("/health", async (req, res) => {
     checks
   });
 });
-
 
 /* -------------------------------------------------------
    START SERVER
