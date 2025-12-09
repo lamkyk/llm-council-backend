@@ -22,10 +22,10 @@ const HF_KEY        = process.env.HF_KEY;
 /* -------------------------------------------------------
    MODEL REGISTRY
    - Groq: 2 models
-   - OpenRouter: free/subsidized + low-cost stack
-   - TogetherAI: 2 models
-   - Fireworks: 2 models
-   - HuggingFace: 2 models
+   - OpenRouter: lowest-cost / free stack
+   - TogetherAI: 2 models (helpers kept, not used by council)
+   - Fireworks: 2 models (helpers kept, not used by council)
+   - HuggingFace: 2 models (helpers kept, not used by council)
 --------------------------------------------------------*/
 const MODELS = [
   // Groq
@@ -40,65 +40,24 @@ const MODELS = [
     provider: "groq"
   },
 
-  // OpenRouter — confirmed free/subsidized + low-cost
+  // OpenRouter — lowest-cost / free models only
   {
-    label: "GPT-OSS-20B",
-    id: "openai/gpt-oss-20b",
-    provider: "openrouter"
-  },
-  {
-    label: "LLaMA 3.1 8B Instruct",
-    id: "meta-llama/llama-3.1-8b-instruct:free",
-    provider: "openrouter"
-  },
-  {
-    label: "Kimi-K2",
-    id: "moonshotai/kimi-k2-instruct-0905:free",
-    provider: "openrouter"
-  },
-  {
-    label: "DeepSeek V3",
-    id: "deepseek/deepseek-v3:free",
-    provider: "openrouter"
-  },
-  {
-    label: "DeepSeek Chat (OR)",
-    id: "deepseek/deepseek-chat:free",
-    provider: "openrouter"
-  },
-  {
-    label: "DeepSeek R1 Reasoner (OR)",
-    id: "deepseek/deepseek-r1:free",
-    provider: "openrouter"
-  },
-  {
-    label: "DeepSeek Chat v3.1 (OR)",
-    id: "deepseek/deepseek-chat-v3.1:free",
-    provider: "openrouter"
-  },
-  {
-    label: "Gemini Flash 2.0",
+    label: "Gemini Flash 2.0 (Free via OpenRouter)",
     id: "google/gemini-2.0-flash-exp:free",
     provider: "openrouter"
   },
   {
-    label: "Mistral Nemo",
-    id: "mistralai/mistral-nemo:free",
-    provider: "openrouter"
-  },
-  // Qwen low-cost models via OpenRouter
-  {
-    label: "Qwen 2.5 7B Instruct (OR)",
+    label: "Qwen 2.5 7B Instruct",
     id: "qwen/qwen-2.5-7b-instruct",
     provider: "openrouter"
   },
   {
-    label: "Qwen 2.5 VL 32B Instruct (OR)",
+    label: "Qwen 2.5 VL 32B Instruct",
     id: "qwen/qwen2.5-vl-32b-instruct",
     provider: "openrouter"
   },
 
-  // TogetherAI
+  // TogetherAI (not used by council right now, helpers kept)
   {
     label: "Together • LLaMA-3 8B Chat",
     id: "togethercomputer/llama-3-8b-chat",
@@ -110,7 +69,7 @@ const MODELS = [
     provider: "together"
   },
 
-  // Fireworks.ai
+  // Fireworks.ai (not used by council right now, helpers kept)
   {
     label: "Fireworks • LLaMA-3.1 8B Instruct",
     id: "accounts/fireworks/models/llama-v3p1-8b-instruct",
@@ -122,7 +81,7 @@ const MODELS = [
     provider: "fireworks"
   },
 
-  // HuggingFace Inference (text-style)
+  // HuggingFace Inference (text-style, not used by council right now)
   {
     label: "HF • Zephyr-7B",
     id: "HuggingFaceH4/zephyr-7b-beta",
@@ -744,9 +703,7 @@ app.get("/health", async (req, res) => {
     ["deepseek/deepseek-r1:free", "DeepSeek R1"],
     ["deepseek/deepseek-chat-v3.1:free", "DeepSeek Chat v3.1"],
     ["google/gemini-2.0-flash-exp:free", "Gemini Flash 2.0"],
-    ["mistralai/mistral-nemo:free", "Mistral Nemo"],
-    ["qwen/qwen-2.5-7b-instruct", "Qwen 2.5 7B Instruct (OR)"],
-    ["qwen/qwen2.5-vl-32b-instruct", "Qwen 2.5 VL 32B Instruct (OR)"]
+    ["mistralai/mistral-nemo:free", "Mistral Nemo"]
   ];
 
   const TOGETHER_MODELS = [
@@ -787,7 +744,6 @@ app.get("/health", async (req, res) => {
     checks
   });
 });
-
 
 /* -------------------------------------------------------
    START SERVER
