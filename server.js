@@ -157,6 +157,7 @@ async function callGroq(model, prompt, maxTokens = 500) {
 
 async function callOpenRouter(model, prompt, maxTokens = 500) {
   if (!OR_KEY) return null;
+
   try {
     const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -171,10 +172,30 @@ async function callOpenRouter(model, prompt, maxTokens = 500) {
         max_tokens: maxTokens
       })
     });
-    if (!r.ok) return null;
-    const j = await r.json();
-    return j.choices?.[0]?.message?.content || null;
-  } catch {
+
+    // Read raw response (important)
+    const raw = await r.text();
+
+    // Log everything to Render console
+    console.log("\n========== OPENROUTER RAW RESPONSE ==========");
+    console.log("Model:", model);
+    console.log("HTTP Status:", r.status);
+    console.log("Body:", raw);
+    console.log("=============================================\n");
+
+    // Try parsing JSON (in case it's valid)
+    try {
+      const j = JSON.parse(raw);
+      return j?.choices?.[0]?.message?.content || null;
+    } catch {
+      return null;
+    }
+
+  } catch (err) {
+    console.log("\n===== OPENROUTER FETCH ERROR =====");
+    console.log("Model:", model);
+    console.log("Error:", err);
+    console.log("==================================\n");
     return null;
   }
 }
