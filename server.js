@@ -26,43 +26,17 @@ const HF_KEY        = process.env.HF_KEY;        // kept for compatibility, not 
 --------------------------------------------------------*/
 const MODELS = [
   // Groq
-  {
-    label: "Groq • Llama-3.1 8B",
-    id: "llama-3.1-8b-instant",
-    provider: "groq"
-  },
-  {
-    label: "Groq • Llama-3.3 70B",
-    id: "llama-3.3-70b-versatile",
-    provider: "groq"
-  },
+  { label: "Groq • Llama-3.1 8B", id: "llama-3.1-8b-instant", provider: "groq" },
+  { label: "Groq • Llama-3.3 70B", id: "llama-3.3-70b-versatile", provider: "groq" },
 
-  // OpenRouter — low-cost / popular routes (bill against your OR balance)
-  {
-    label: "OR • DeepSeek Chat",
-    id: "deepseek/deepseek-chat",
-    provider: "openrouter"
-  },
-  {
-    label: "OR • DeepSeek Reasoner",
-    id: "deepseek/deepseek-reasoner",
-    provider: "openrouter"
-  },
-  {
-    label: "OR • Gemini 2.0 Flash",
-    id: "google/gemini-2.0-flash-exp",
-    provider: "openrouter"
-  },
-  {
-    label: "OR • Mistral Small",
-    id: "mistralai/mistral-small-latest",
-    provider: "openrouter"
-  },
-  {
-    label: "OR • Qwen 2.5 7B Instruct",
-    id: "qwen/qwen-2.5-7b-instruct",
-    provider: "openrouter"
-  }
+  // OpenRouter valid models
+  { label: "GPT-OSS-20B", id: "openai/gpt-oss-20b", provider: "openrouter" },
+  { label: "Gemini Flash 2.0", id: "google/gemini-2.0-flash-exp:free", provider: "openrouter" },
+  { label: "DeepSeek V3", id: "deepseek/deepseek-v3", provider: "openrouter" },
+  { label: "DeepSeek Chat", id: "deepseek/deepseek-chat", provider: "openrouter" },
+  { label: "DeepSeek R1", id: "deepseek/deepseek-r1", provider: "openrouter" },
+  { label: "DeepSeek Chat v3.1", id: "deepseek/deepseek-chat-v3.1", provider: "openrouter" },
+  { label: "Mistral Nemo", id: "mistralai/mistral-nemo", provider: "openrouter" }
 ];
 
 // Chairman is Groq Llama-3.3 70B
@@ -572,13 +546,15 @@ app.get("/health", async (req, res) => {
     ["llama-3.3-70b-versatile", "Groq • Llama-3.3 70B"]
   ];
 
-  const OPENROUTER_MODELS = [
-    ["deepseek/deepseek-chat", "OR • DeepSeek Chat"],
-    ["deepseek/deepseek-reasoner", "OR • DeepSeek Reasoner"],
-    ["google/gemini-2.0-flash-exp", "OR • Gemini 2.0 Flash"],
-    ["mistralai/mistral-small-latest", "OR • Mistral Small"],
-    ["qwen/qwen-2.5-7b-instruct", "OR • Qwen 2.5 7B Instruct"]
-  ];
+ const OPENROUTER_MODELS = [
+  ["openai/gpt-oss-20b", "GPT-OSS-20B"],
+  ["google/gemini-2.0-flash-exp:free", "Gemini Flash 2.0"],
+  ["deepseek/deepseek-v3", "DeepSeek V3"],
+  ["deepseek/deepseek-chat", "DeepSeek Chat"],
+  ["deepseek/deepseek-r1", "DeepSeek R1"],
+  ["deepseek/deepseek-chat-v3.1", "DeepSeek Chat v3.1"],
+  ["mistralai/mistral-nemo", "Mistral Nemo"]
+];
 
   /* -------------------------
      RUN CHECKS
