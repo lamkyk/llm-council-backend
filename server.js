@@ -22,7 +22,7 @@ const HF_KEY        = process.env.HF_KEY;
 /* -------------------------------------------------------
    MODEL REGISTRY
    - Groq: 2 models
-   - OpenRouter: free/subsidized stack
+   - OpenRouter: free/subsidized + low-cost stack
    - TogetherAI: 2 models
    - Fireworks: 2 models
    - HuggingFace: 2 models
@@ -40,7 +40,7 @@ const MODELS = [
     provider: "groq"
   },
 
-  // OpenRouter — confirmed free/subsidized
+  // OpenRouter — confirmed free/subsidized + low-cost
   {
     label: "GPT-OSS-20B",
     id: "openai/gpt-oss-20b",
@@ -84,6 +84,17 @@ const MODELS = [
   {
     label: "Mistral Nemo",
     id: "mistralai/mistral-nemo:free",
+    provider: "openrouter"
+  },
+  // Qwen low-cost models via OpenRouter
+  {
+    label: "Qwen 2.5 7B Instruct (OR)",
+    id: "qwen/qwen-2.5-7b-instruct",
+    provider: "openrouter"
+  },
+  {
+    label: "Qwen 2.5 VL 32B Instruct (OR)",
+    id: "qwen/qwen2.5-vl-32b-instruct",
     provider: "openrouter"
   },
 
@@ -172,7 +183,7 @@ async function callOpenRouter(model, prompt, maxTokens = 500) {
       })
     });
 
-    // NEW: capture failure output
+    // capture failure output
     if (!r.ok) {
       const errText = await r.text().catch(() => "no-body");
       console.error("OpenRouter ERROR:", {
@@ -192,7 +203,6 @@ async function callOpenRouter(model, prompt, maxTokens = 500) {
     return null;
   }
 }
-
 
 async function callTogether(model, prompt, maxTokens = 500) {
   if (!TOGETHER_KEY) return null;
@@ -622,7 +632,6 @@ app.get("/health", async (req, res) => {
     }
   }
 
-
   async function testTogether(model, name) {
     try {
       const r = await fetch("https://api.together.xyz/v1/chat/completions", {
@@ -735,7 +744,9 @@ app.get("/health", async (req, res) => {
     ["deepseek/deepseek-r1:free", "DeepSeek R1"],
     ["deepseek/deepseek-chat-v3.1:free", "DeepSeek Chat v3.1"],
     ["google/gemini-2.0-flash-exp:free", "Gemini Flash 2.0"],
-    ["mistralai/mistral-nemo:free", "Mistral Nemo"]
+    ["mistralai/mistral-nemo:free", "Mistral Nemo"],
+    ["qwen/qwen-2.5-7b-instruct", "Qwen 2.5 7B Instruct (OR)"],
+    ["qwen/qwen2.5-vl-32b-instruct", "Qwen 2.5 VL 32B Instruct (OR)"]
   ];
 
   const TOGETHER_MODELS = [
