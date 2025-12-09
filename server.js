@@ -9,23 +9,20 @@ app.use(cors());
 
 /* -------------------------------------------------------
    LOAD ENVIRONMENT KEYS
-   (Render dashboard: GROQ_KEY, OR_KEY; optional: TOGETHER_KEY, FIREWORKS_KEY, HF_KEY)
+   (Render dashboard: GROQ_KEY, OR_KEY; others optional)
 --------------------------------------------------------*/
 const GROQ_KEY      = process.env.GROQ_KEY;
 const OR_KEY        = process.env.OR_KEY;
-const GEMINI_KEY    = process.env.GEMINI_KEY;  // currently unused (OpenRouter preferred)
-const DEEP_KEY      = process.env.DEEP_KEY;    // currently unused (OpenRouter preferred)
-const TOGETHER_KEY  = process.env.TOGETHER_KEY;
-const FIREWORKS_KEY = process.env.FIREWORKS_KEY;
-const HF_KEY        = process.env.HF_KEY;
+const GEMINI_KEY    = process.env.GEMINI_KEY;    // currently unused (OpenRouter preferred)
+const DEEP_KEY      = process.env.DEEP_KEY;      // currently unused (OpenRouter preferred)
+const TOGETHER_KEY  = process.env.TOGETHER_KEY;  // kept for compatibility, not used
+const FIREWORKS_KEY = process.env.FIREWORKS_KEY; // kept for compatibility, not used
+const HF_KEY        = process.env.HF_KEY;        // kept for compatibility, not used
 
 /* -------------------------------------------------------
    MODEL REGISTRY
-   - Groq: 2 models
-   - OpenRouter: lowest-cost / free stack
-   - TogetherAI: 2 models (helpers kept, not used by council)
-   - Fireworks: 2 models (helpers kept, not used by council)
-   - HuggingFace: 2 models (helpers kept, not used by council)
+   - Groq: 2 models (fast + strong)
+   - OpenRouter: 5 low-cost general models
 --------------------------------------------------------*/
 const MODELS = [
   // Groq
@@ -40,57 +37,31 @@ const MODELS = [
     provider: "groq"
   },
 
-  // OpenRouter — lowest-cost / free models only
+  // OpenRouter — low-cost / popular routes (bill against your OR balance)
   {
-    label: "Gemini Flash 2.0 (Free via OpenRouter)",
-    id: "google/gemini-2.0-flash-exp:free",
+    label: "OR • DeepSeek Chat",
+    id: "deepseek/deepseek-chat",
     provider: "openrouter"
   },
   {
-    label: "Qwen 2.5 7B Instruct",
+    label: "OR • DeepSeek Reasoner",
+    id: "deepseek/deepseek-reasoner",
+    provider: "openrouter"
+  },
+  {
+    label: "OR • Gemini 2.0 Flash",
+    id: "google/gemini-2.0-flash-exp",
+    provider: "openrouter"
+  },
+  {
+    label: "OR • Mistral Small",
+    id: "mistralai/mistral-small-latest",
+    provider: "openrouter"
+  },
+  {
+    label: "OR • Qwen 2.5 7B Instruct",
     id: "qwen/qwen-2.5-7b-instruct",
     provider: "openrouter"
-  },
-  {
-    label: "Qwen 2.5 VL 32B Instruct",
-    id: "qwen/qwen2.5-vl-32b-instruct",
-    provider: "openrouter"
-  },
-
-  // TogetherAI (not used by council right now, helpers kept)
-  {
-    label: "Together • LLaMA-3 8B Chat",
-    id: "togethercomputer/llama-3-8b-chat",
-    provider: "together"
-  },
-  {
-    label: "Together • LLaMA-3 70B Chat",
-    id: "togethercomputer/llama-3-70b-chat",
-    provider: "together"
-  },
-
-  // Fireworks.ai (not used by council right now, helpers kept)
-  {
-    label: "Fireworks • LLaMA-3.1 8B Instruct",
-    id: "accounts/fireworks/models/llama-v3p1-8b-instruct",
-    provider: "fireworks"
-  },
-  {
-    label: "Fireworks • Mixtral 8x7B",
-    id: "accounts/fireworks/models/mixtral-8x7b-instruct",
-    provider: "fireworks"
-  },
-
-  // HuggingFace Inference (text-style, not used by council right now)
-  {
-    label: "HF • Zephyr-7B",
-    id: "HuggingFaceH4/zephyr-7b-beta",
-    provider: "huggingface"
-  },
-  {
-    label: "HF • Mistral 7B Instruct",
-    id: "mistralai/Mistral-7B-Instruct-v0.3",
-    provider: "huggingface"
   }
 ];
 
@@ -142,7 +113,7 @@ async function callOpenRouter(model, prompt, maxTokens = 500) {
       })
     });
 
-    // capture failure output
+    // capture failure output for debugging
     if (!r.ok) {
       const errText = await r.text().catch(() => "no-body");
       console.error("OpenRouter ERROR:", {
@@ -156,12 +127,13 @@ async function callOpenRouter(model, prompt, maxTokens = 500) {
 
     const j = await r.json();
     return j?.choices?.[0]?.message?.content || null;
-
   } catch (err) {
     console.error("OpenRouter EXCEPTION:", { model, error: err });
     return null;
   }
 }
+
+/* The following helpers are kept for compatibility but not used by MODELS */
 
 async function callTogether(model, prompt, maxTokens = 500) {
   if (!TOGETHER_KEY) return null;
@@ -488,7 +460,7 @@ app.post("/council", async (req, res) => {
 });
 
 /* -------------------------------------------------------
-   HEALTH CHECK — FULL PROVIDER COVERAGE
+   HEALTH CHECK — GROQ + OPENROUTER ONLY
 --------------------------------------------------------*/
 
 app.get("/health", async (req, res) => {
@@ -591,102 +563,8 @@ app.get("/health", async (req, res) => {
     }
   }
 
-  async function testTogether(model, name) {
-    try {
-      const r = await fetch("https://api.together.xyz/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.TOGETHER_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 20,
-          messages: [
-            { role: "system", content: "pong" },
-            { role: "user", content: "pong" }
-          ]
-        })
-      });
-
-      const j = await r.json();
-      const reply = j?.choices?.[0]?.message?.content || null;
-
-      checks.push({
-        model: name,
-        id: model,
-        provider: "together",
-        ok: reply?.toLowerCase().includes("pong") || false,
-        reply
-      });
-    } catch (err) {
-      checks.push({ model: name, id: model, provider: "together", ok: false, reply: String(err) });
-    }
-  }
-
-  async function testFireworks(model, name) {
-    try {
-      const r = await fetch(`https://api.fireworks.ai/inference/v1/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.FIREWORKS_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 20,
-          messages: [
-            { role: "system", content: "pong" },
-            { role: "user", content: "pong" }
-          ]
-        })
-      });
-
-      const j = await r.json();
-      const reply = j?.choices?.[0]?.message?.content || null;
-
-      checks.push({
-        model: name,
-        id: model,
-        provider: "fireworks",
-        ok: reply?.toLowerCase().includes("pong") || false,
-        reply
-      });
-    } catch (err) {
-      checks.push({ model: name, id: model, provider: "fireworks", ok: false, reply: String(err) });
-    }
-  }
-
-  async function testHF(model, name) {
-    try {
-      const r = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.HF_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          inputs: "pong"
-        })
-      });
-
-      const j = await r.json();
-      const reply = j?.generated_text || j?.[0]?.generated_text || null;
-
-      checks.push({
-        model: name,
-        id: model,
-        provider: "huggingface",
-        ok: reply?.toLowerCase().includes("pong") || false,
-        reply
-      });
-    } catch (err) {
-      checks.push({ model: name, id: model, provider: "huggingface", ok: false, reply: String(err) });
-    }
-  }
-
   /* -------------------------
-     MODEL LISTS
+     MODEL LISTS (aligned with MODELS)
   --------------------------*/
 
   const GROQ_MODELS = [
@@ -695,42 +573,20 @@ app.get("/health", async (req, res) => {
   ];
 
   const OPENROUTER_MODELS = [
-    ["openai/gpt-oss-20b", "GPT-OSS-20B"],
-    ["meta-llama/llama-3.1-8b-instruct:free", "LLaMA 3.1 8B Instruct"],
-    ["moonshotai/kimi-k2-instruct-0905:free", "Kimi-K2"],
-    ["deepseek/deepseek-v3:free", "DeepSeek V3"],
-    ["deepseek/deepseek-chat:free", "DeepSeek Chat"],
-    ["deepseek/deepseek-r1:free", "DeepSeek R1"],
-    ["deepseek/deepseek-chat-v3.1:free", "DeepSeek Chat v3.1"],
-    ["google/gemini-2.0-flash-exp:free", "Gemini Flash 2.0"],
-    ["mistralai/mistral-nemo:free", "Mistral Nemo"]
-  ];
-
-  const TOGETHER_MODELS = [
-    ["meta-llama/Llama-3-70b-chat-hf", "Together Llama-3-70B Chat"],
-    ["Qwen/Qwen2.5-72B-Instruct", "Together Qwen2.5-72B"]
-  ];
-
-  const FIREWORKS_MODELS = [
-    ["accounts/fireworks/models/llama-v3p1-70b-instruct", "Fireworks Llama-3.1-70B"],
-    ["accounts/fireworks/models/llama-v3p1-8b-instruct", "Fireworks Llama-3.1-8B"]
-  ];
-
-  const HF_MODELS = [
-    ["HuggingFaceH4/zephyr-7b-beta", "HF Zephyr 7B"],
-    ["mistralai/Mistral-7B-Instruct-v0.2", "HF Mistral 7B"]
+    ["deepseek/deepseek-chat", "OR • DeepSeek Chat"],
+    ["deepseek/deepseek-reasoner", "OR • DeepSeek Reasoner"],
+    ["google/gemini-2.0-flash-exp", "OR • Gemini 2.0 Flash"],
+    ["mistralai/mistral-small-latest", "OR • Mistral Small"],
+    ["qwen/qwen-2.5-7b-instruct", "OR • Qwen 2.5 7B Instruct"]
   ];
 
   /* -------------------------
-     RUN ALL CHECKS
+     RUN CHECKS
   --------------------------*/
 
   await Promise.all([
     ...GROQ_MODELS.map(([id, name]) => testGroq(id, name)),
-    ...OPENROUTER_MODELS.map(([id, name]) => testOR(id, name)),
-    ...TOGETHER_MODELS.map(([id, name]) => testTogether(id, name)),
-    ...FIREWORKS_MODELS.map(([id, name]) => testFireworks(id, name)),
-    ...HF_MODELS.map(([id, name]) => testHF(id, name))
+    ...OPENROUTER_MODELS.map(([id, name]) => testOR(id, name))
   ]);
 
   /* -------------------------
