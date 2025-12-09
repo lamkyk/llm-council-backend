@@ -563,64 +563,64 @@ app.get("/health", async (req, res) => {
     }
   }
 
-async function testOR(model, name) {
-  try {
-    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.OR_KEY}`,
-        "X-Title": "LLM Council Health Check",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 20,
-        temperature: 0,
-        messages: [
-          { role: "system", content: "Health probe. Respond exactly with: pong" },
-          { role: "user", content: "pong" }
-        ]
-      })
-    });
-
-    if (!r.ok) {
-      const errText = await r.text().catch(() => "");
-      console.error("HealthCheck OR ERROR:", {
-        model,
-        status: r.status,
-        body: errText
+  async function testOR(model, name) {
+    try {
+      const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.OR_KEY}`,
+          "X-Title": "LLM Council Health Check",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 20,
+          temperature: 0,
+          messages: [
+            { role: "system", content: "Health probe. Respond exactly with: pong" },
+            { role: "user", content: "pong" }
+          ]
+        })
       });
+
+      if (!r.ok) {
+        const errText = await r.text().catch(() => "");
+        console.error("HealthCheck OR ERROR:", {
+          model,
+          status: r.status,
+          body: errText
+        });
+        checks.push({
+          model: name,
+          id: model,
+          provider: "openrouter",
+          ok: false,
+          reply: null
+        });
+        return;
+      }
+
+      const j = await r.json();
+      const reply = j?.choices?.[0]?.message?.content || null;
+
+      checks.push({
+        model: name,
+        id: model,
+        provider: "openrouter",
+        ok: reply?.toLowerCase().includes("pong") || false,
+        reply
+      });
+    } catch (err) {
+      console.error("HealthCheck EXCEPTION:", { model, error: err });
       checks.push({
         model: name,
         id: model,
         provider: "openrouter",
         ok: false,
-        reply: null
+        reply: String(err)
       });
-      return;
     }
-
-    const j = await r.json();
-    const reply = j?.choices?.[0]?.message?.content || null;
-
-    checks.push({
-      model: name,
-      id: model,
-      provider: "openrouter",
-      ok: reply?.toLowerCase().includes("pong") || false,
-      reply
-    });
-  } catch (err) {
-    console.error("HealthCheck EXCEPTION:", { model, error: err });
-    checks.push({
-      model: name,
-      id: model,
-      provider: "openrouter",
-      ok: false,
-      reply: String(err)
-    });
   }
-}
 
 
   async function testTogether(model, name) {
