@@ -30,14 +30,17 @@ const MODELS = [
   { label: "Groq • Llama-3.3 70B", id: "llama-3.3-70b-versatile", provider: "groq" },
 
   // OpenRouter valid models
-  { label: "GPT-OSS-20B", id: "openai/gpt-oss-20b", provider: "openrouter" },
-  { label: "Gemini Flash 2.0", id: "google/gemini-2.0-flash-exp:free", provider: "openrouter" },
-  { label: "DeepSeek V3", id: "deepseek/deepseek-v3", provider: "openrouter" },
-  { label: "DeepSeek Chat", id: "deepseek/deepseek-chat", provider: "openrouter" },
-  { label: "DeepSeek R1", id: "deepseek/deepseek-r1", provider: "openrouter" },
-  { label: "DeepSeek Chat v3.1", id: "deepseek/deepseek-chat-v3.1", provider: "openrouter" },
-  { label: "Mistral Nemo", id: "mistralai/mistral-nemo", provider: "openrouter" }
+  { label: "GPT-OSS-20B",      id: "openai/gpt-oss-20b",                 provider: "openrouter" },
+  { label: "Gemini Flash 2.0", id: "google/gemini-2.0-flash-exp:free",   provider: "openrouter" },
+  { label: "DeepSeek V3",      id: "deepseek/deepseek-v3",               provider: "openrouter" },
+  { label: "DeepSeek Chat",    id: "deepseek/deepseek-chat",             provider: "openrouter" },
+  { label: "DeepSeek R1",      id: "deepseek/deepseek-r1",               provider: "openrouter" },
+  { label: "DeepSeek Chat v3.1", id: "deepseek/deepseek-chat-v3.1",      provider: "openrouter" },
+  { label: "Mistral Nemo",     id: "mistralai/mistral-nemo",             provider: "openrouter" },
+  { label: "Qwen 2.5 7B Instruct", id: "qwen/qwen-2.5-7b-instruct", provider: "openrouter" },
+  { label: "Qwen 2.5 VL 32B Instruct", id: "qwen/qwen2.5-vl-32b-instruct", provider: "openrouter"}
 ];
+
 
 // Chairman is Groq Llama-3.3 70B
 const CHAIRMAN_ID    = "llama-3.3-70b-versatile";
@@ -553,7 +556,10 @@ app.get("/health", async (req, res) => {
   ["deepseek/deepseek-chat", "DeepSeek Chat"],
   ["deepseek/deepseek-r1", "DeepSeek R1"],
   ["deepseek/deepseek-chat-v3.1", "DeepSeek Chat v3.1"],
-  ["mistralai/mistral-nemo", "Mistral Nemo"]
+  ["mistralai/mistral-nemo", "Mistral Nemo"],
+    ["qwen/qwen-2.5-7b-instruct", "Qwen 2.5 7B Instruct"],
+["qwen/qwen2.5-vl-32b-instruct", "Qwen 2.5 VL 32B Instruct"]
+
 ];
 
   /* -------------------------
